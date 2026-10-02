@@ -1,0 +1,4 @@
+{
+  "description": "The gamba hooks module",
+  "modules": ["./register.ts"]
+}

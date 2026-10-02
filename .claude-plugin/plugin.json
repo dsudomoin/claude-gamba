@@ -1,0 +1,31 @@
+{
+  "name": "gamba",
+  "version": "0.1.0",
+  "description": "A slot machine you spin while your agent works. Chips come only from the tokens it burns. No real money: satire.",
+  "author": { "name": "salatmaster" },
+  "keywords": ["mod", "game", "slot", "meme"],
+  "userConfig": {
+    "tokens_per_chip": {
+      "type": "number",
+      "title": "Tokens per chip",
+      "description": "How many burned tokens buy one spin. Lower means more chips per agent turn.",
+      "default": 2000,
+      "min": 1
+    },
+    "max_chips_per_turn": {
+      "type": "number",
+      "title": "Max chips per turn",
+      "description": "Cap on chips one agent turn can deposit, so a huge turn does not flood the balance.",
+      "default": 20,
+      "min": 1
+    },
+    "limit_warn_percent": {
+      "type": "number",
+      "title": "Weekly limit warning, %",
+      "description": "Warn once per week when this much of the weekly plan limit is used.",
+      "default": 80,
+      "min": 1,
+      "max": 100
+    }
+  }
+}

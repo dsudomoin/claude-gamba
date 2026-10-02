@@ -1,0 +1,6 @@
+{
+  "name": "claude-gamba",
+  "owner": { "name": "salatmaster" },
+  "description": "gamba: a slot machine for Claude Code, paid for in burned tokens. No real money.",
+  "plugins": [{ "name": "gamba", "source": "./" }]
+}
