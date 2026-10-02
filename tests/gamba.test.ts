@@ -2,7 +2,23 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On, TurnUsage } from 'claude-code'
 
-import { PAIR_PAY, SYMBOLS, applySpin, burned, deposit, fresh, payout, rank, rollWeek, rtp, spin } from '../hooks/game'
+import {
+  FREE_MULT,
+  FREE_SPINS,
+  PAIR_PAY,
+  SCATTER,
+  SYMBOLS,
+  applySpin,
+  burned,
+  deposit,
+  fresh,
+  payout,
+  rank,
+  rollWeek,
+  rtp,
+  scatters,
+  spin,
+} from '../hooks/game'
 import type { Save } from '../hooks/game'
 import { big, bulbs, layout, reelWindow } from '../hooks/art'
 import { STRIP, faces, plan } from '../hooks/reels'
@@ -24,6 +40,8 @@ const LISTS: (keyof Phrases)[] = [
   'limit',
   'first',
   'offer',
+  'bonus',
+  'bonusEnd',
 ]
 
 // ---------------------------------------------------------------- the slot
@@ -34,6 +52,10 @@ test('payouts: a pair from the left pays 2, three of a kind pays by symbol, the 
   expect(payout([3, 4, 4])).toBe(0)
   expect(payout([0, 1, 2])).toBe(0)
   SYMBOLS.forEach((symbol, i) => expect(payout([i, i, i])).toBe(symbol.pay))
+  // The scatter pays in free spins, never on the line, and counts anywhere on it.
+  expect(payout([SCATTER, SCATTER, 0])).toBe(0)
+  expect(scatters([SCATTER, 0, SCATTER])).toBe(2)
+  expect(scatters([0, 0, 0])).toBe(0)
 })
 
 // A seeded generator, so the big sample is the same on every run.
@@ -51,12 +73,12 @@ test('the slot returns less than it takes: exactly, and over 300,000 spins', asy
   expect(exact).toBeGreaterThan(0.6)
   expect(exact).toBeLessThan(0.9)
 
+  // Played through applySpin, so the free spins the sample wins are in it too.
   const rng = seeded(42)
-  const spins = 300_000
-  let won = 0
-  for (let i = 0; i < spins; i++) won += payout(spin(rng))
-  expect(won / spins).toBeLessThan(1)
-  expect(Math.abs(won / spins - exact)).toBeLessThan(0.05)
+  const s = { ...fresh(), chips: Number.MAX_SAFE_INTEGER }
+  while (s.wagered < 300_000 || s.free > 0) applySpin(s, spin(rng))
+  expect(s.won / s.wagered).toBeLessThan(1)
+  expect(Math.abs(s.won / s.wagered - exact)).toBeLessThan(0.05)
 })
 
 test('the reels scroll one symbol at a time, stop left to right, and rest on the result', async () => {
@@ -116,6 +138,26 @@ test('a spin costs a chip, pays the win and keeps the records', async () => {
   const low = { ...fresh(), chips: 7, bet: 25 }
   expect(applySpin(low, [0, 1, 2])).toBe(0)
   expect(low).toMatchObject({ chips: 0, wagered: 7 })
+})
+
+test('scatters on a paid spin grant free spins: no stake, the payout times the stake that won them', async () => {
+  const s = { ...fresh(), chips: 10, bet: 5 }
+  expect(applySpin(s, [SCATTER, 0, SCATTER])).toBe(0)
+  expect(s).toMatchObject({ chips: 5, free: FREE_SPINS[2], freeBet: 5, wagered: 5 })
+  s.bet = 25 // the stake of the free spins is already fixed
+  expect(applySpin(s, [5, 5, 5])).toBe(6 * 5 * FREE_MULT)
+  expect(applySpin(s, [SCATTER, SCATTER, SCATTER])).toBe(0) // no retrigger
+  expect(s).toMatchObject({ chips: 65, free: FREE_SPINS[2]! - 2, freeWon: 60, wagered: 5, won: 60, spins: 3 })
+  while (s.free > 0) applySpin(s, [0, 1, 2])
+  expect(s).toMatchObject({ chips: 65, wagered: 5 })
+  // Spent: the next spin costs again.
+  applySpin(s, [0, 1, 2])
+  expect(s).toMatchObject({ chips: 40, wagered: 30, free: 0 })
+
+  // Three scatters grant more; going all in, the free spins keep the smaller stake.
+  const low = { ...fresh(), chips: 2, bet: 10 }
+  applySpin(low, [SCATTER, SCATTER, SCATTER])
+  expect(low).toMatchObject({ chips: 0, free: FREE_SPINS[3], freeBet: 2 })
 })
 
 test('ranks climb with all-time spins, and the week turns over on Monday', async () => {
@@ -460,14 +502,18 @@ test(
       // win and a miss; 200 spins without one of them does not happen.
       const seen = new Set<boolean>()
       for (let i = 0; i < 200 && seen.size < 2; i++) {
+        // Scatters may have won free spins: those stake nothing and pay double.
+        const before = saved()
+        const stake = before.free > 0 ? 0 : 1
+        const times = before.free > 0 ? before.freeBet * FREE_MULT : 1
         await ui.press({ key: 'spin' })
         await ui.press({ key: 'spin' }) // a second press mid-spin is ignored
         const after = saved()
-        const win = after.chips - (balance - 1)
+        const win = after.chips - (balance - stake)
         expect(after.spins).toBe((spins += 1))
-        expect(pays).toContain(win)
+        expect(pays.map(pay => pay * times)).toContain(win)
         // Saved already, but the pane shows the balance without the win.
-        expect(await ui.find({ type: 'Text', text: `Balance: ${balance - 1}` })).toBeDefined()
+        expect(await ui.find({ type: 'Text', text: `Balance: ${balance - stake}` })).toBeDefined()
         await clock.advance(5000) // the reels stop and the win is counted up
         expect(await ui.find({ type: 'Text', text: `Balance: ${after.chips}` })).toBeDefined()
         expect((await ui.findAll({ type: 'Text', text: /^(► |  )║(   \S+   ║){3}( ◄|  )$/u }))).toHaveLength(3)
@@ -479,12 +525,30 @@ test(
       await ui.unmount()
     }
     expect(saved().won).toBe(wins)
-    expect(balance).toBe(500 - spins + wins)
+    expect(balance).toBe(500 - saved().wagered + wins)
     // Every reel clacks as it stops, and a win has its own sound.
     expect(heard.sounds.filter(sound => sound === 'sounds/stop.wav')).toHaveLength(spins * 3)
     expect(heard.sounds.some(sound => sound === 'sounds/win.wav' || sound === 'sounds/big.wav')).toBe(true)
   },
 )
+
+test('free spins spin with no chips, count down in place of the stake, and sum up at the end', async ($, on) => {
+  const { clock, saved } = stubs(on, { chips: 0, seen: true, free: 2, freeBet: 5 })
+  await $.session.start(START)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'Free spins: 2 · Bet 5 ×2' })).toBeDefined()
+  expect(await ui.find({ key: 'bet-up' })).toBeUndefined()
+  await ui.press({ key: 'spin' })
+  await clock.advance(5000)
+  expect(await ui.find({ type: 'Text', text: 'Free spins: 1 · Bet 5 ×2' })).toBeDefined()
+  await ui.press({ key: 'spin' })
+  await clock.advance(5000)
+  const after = saved()
+  expect(after).toMatchObject({ spins: 2, wagered: 0, free: 0, chips: after.freeWon })
+  const said = (await ui.findAll({ type: 'Text' })).map(text => text.text)
+  expect(en.bonusEnd.some(phrase => said.includes(fill(en, phrase, { n: after.freeWon })))).toBe(true)
+  expect(await ui.find({ key: 'bet-up' })).toBeDefined() // the stake is back
+})
 
 test('no chips, no spin', async ($, on) => {
   const { clock, saved } = stubs(on, { chips: 0, seen: true })

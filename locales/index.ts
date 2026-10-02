@@ -18,6 +18,8 @@ export type Phrases = {
   limit: string[] // weekly limit warning: {pct}
   first: string[] // first launch
   offer: string[] // above the prompt, while the agent works: open the slot?
+  bonus: string[] // scatters won free spins: {n}
+  bonusEnd: string[] // the last free spin is down: {n} chips won in them
 }
 
 export type Locale = Phrases & {
@@ -48,6 +50,7 @@ export type Locale = Phrases & {
     warn: string
     bet: string
     pair: string // the paytable's row for two alike
+    free: string // free spins: the counter while they last, and the paytable's row
     week: string
     waited: string
     hours: string

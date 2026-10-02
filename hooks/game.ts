@@ -12,7 +12,15 @@ export const SYMBOLS: readonly Sym[] = [
   { emoji: '🐛', weight: 4, pay: 10 }, // bug
   { emoji: '🔥', weight: 5, pay: 6 }, // prod is on fire
   { emoji: '💀', weight: 5, pay: 6 }, // segfault
+  { emoji: '💰', weight: 1, pay: 0 }, // the bonus: a scatter, pays in free spins
 ]
+
+// The scatter counts anywhere on the payline and never pays on it.
+export const SCATTER = SYMBOLS.length - 1
+// Free spins granted by 0, 1, 2 and 3 scatters on a paid spin.
+export const FREE_SPINS = [0, 0, 10, 25]
+// What a free spin's payout is multiplied by, on top of the stake that won it.
+export const FREE_MULT = 2
 
 // Two matching symbols from the left.
 export const PAIR_PAY = 2
@@ -31,21 +39,29 @@ export function spin(rng: () => number = Math.random): Reels {
 }
 
 export function payout([a, b, c]: Reels): number {
-  if (a !== b) return 0
+  if (a !== b || a === SCATTER) return 0
   return b === c ? SYMBOLS[a]!.pay : PAIR_PAY
 }
 
-// Expected return per chip bet, exact: every combination times its chance.
+export function scatters(reels: Reels): number {
+  return reels.filter(symbol => symbol === SCATTER).length
+}
+
+// Expected return per chip bet, exact: every combination times its chance,
+// plus the free spins it grants, each worth a paid spin times FREE_MULT.
 export function rtp(): number {
-  let total = 0
+  let line = 0
+  let free = 0 // free spins one paid spin grants, on average
   SYMBOLS.forEach((x, a) =>
     SYMBOLS.forEach((y, b) =>
       SYMBOLS.forEach((z, c) => {
-        total += (x.weight * y.weight * z.weight * payout([a, b, c])) / TOTAL_WEIGHT ** 3
+        const chance = (x.weight * y.weight * z.weight) / TOTAL_WEIGHT ** 3
+        line += chance * payout([a, b, c])
+        free += chance * FREE_SPINS[scatters([a, b, c])]!
       }),
     ),
   )
-  return total
+  return line + free * FREE_MULT * line
 }
 
 // When the agent starts working: offer the slot above the prompt, open it
@@ -67,6 +83,9 @@ export type Save = {
   rest: number[] // where on the strip the reels stopped last
   week: { id: number; waitedMs: number; spins: number; tokens: number }
   bet: number // chips a spin stakes, one of BETS
+  free: number // free spins left
+  freeBet: number // the stake of the spin that granted them
+  freeWon: number // won in the free spins so far
   spins: number
   wagered: number
   won: number
@@ -92,6 +111,9 @@ export function fresh(): Save {
     rest: [0, 2, 5],
     week: { id: 0, waitedMs: 0, spins: 0, tokens: 0 },
     bet: 1,
+    free: 0,
+    freeBet: 0,
+    freeWon: 0,
     spins: 0,
     wagered: 0,
     won: 0,
@@ -140,9 +162,20 @@ export function deposit(s: Save, tokens: number, tokensPerChip: number, room: nu
 
 // One spin with the reels already drawn. The stake is the chosen bet, or all
 // the chips there are when that is less; the win is the payout times it.
+// A free spin stakes nothing and pays FREE_MULT times on the stake that won it.
+// ponytail: scatters in free spins grant nothing; add a retrigger if anyone asks.
 export function applySpin(s: Save, reels: Reels): number {
-  const stake = Math.min(s.bet, s.chips)
-  const win = payout(reels) * stake
+  const isFree = s.free > 0
+  const stake = isFree ? 0 : Math.min(s.bet, s.chips)
+  const win = payout(reels) * (isFree ? s.freeBet * FREE_MULT : stake)
+  if (isFree) {
+    s.free -= 1
+    s.freeWon += win
+  } else if (FREE_SPINS[scatters(reels)]! > 0) {
+    s.free = FREE_SPINS[scatters(reels)]!
+    s.freeBet = stake
+    s.freeWon = 0
+  }
   s.chips += win - stake
   s.spins += 1
   s.week.spins += 1

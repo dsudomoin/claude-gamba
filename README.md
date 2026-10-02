@@ -9,7 +9,7 @@
 ![Claude Code 2.1.287+](https://img.shields.io/badge/Claude%20Code-2.1.287%2B-D97757)
 ![dependencies: 0](https://img.shields.io/badge/dependencies-0-2ea44f)
 ![real money: 0](https://img.shields.io/badge/real%20money-0-2ea44f)
-![payout: 73.9%](https://img.shields.io/badge/payout-73.9%25-e3b341)
+![payout: 74.5%](https://img.shields.io/badge/payout-74.5%25-e3b341)
 
 **English** · [Русский](README.ru.md)
 
@@ -88,10 +88,14 @@ Three reels. The middle row, between the arrows, is the one that counts, read fr
 | 🐛 🐛 🐛 | 10 |
 | 🔥 🔥 🔥 prod is on fire, 💀 💀 💀 | 6 |
 | the first two match | 2 |
+| 💰 💰 anywhere on the line | 10 free spins |
+| 💰 💰 💰 | 25 free spins |
 
 The bet is 1, 2, 3, 5, 10, 15, 20 or 25 chips, and a win is the payout times the bet. With fewer chips than the bet, the spin goes all in with what you have.
 
-One spin in five pays anything. The return is 73.9%, computed exactly over all 8,000 outcomes and checked on 300,000 spins in the tests. The house edge is not a bug.
+💰 is the bonus. It pays nothing on the line, but two or three of them anywhere on it, on a paid spin, grant free spins: no chips taken, the stake of the spin that won them, every win doubled. Free spins grant no more free spins. One spin in about 150 gets there, and a bonus brings back 13 bets on average.
+
+One spin in five and a half pays anything. The return is 74.5%, free spins included, computed exactly over all 9,261 outcomes and checked on 300,000 spins in the tests. The house edge is not a bug.
 
 ## Chips
 
