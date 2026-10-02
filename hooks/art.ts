@@ -89,15 +89,19 @@ export type Layout = {
   isWide: boolean // the double-framed reel window fits
   // Big digits under the reels or next to them, one line of text, or the cabinet's own display.
   bank: 'below' | 'beside' | 'line' | 'drawn'
-  // A framed card; the records next to the reels and the week on a line; or two lines of text.
-  stats: 'card' | 'split' | 'lines'
+  // A framed card; the records next to the reels and the week on a line; two
+  // lines of text; or nothing, where every row is taken.
+  stats: 'card' | 'split' | 'lines' | 'none'
   hasLights: boolean
   hasTitle: boolean
   hasPays: boolean
   gap: 0 | 1 // blank rows between the sections
   cabinet?: Parts // the reels in pixels, in place of the text window, the sign and the lights
+  isAside?: true // above the prompt: the words stand beside the pixel reels, not under them
 }
 
+// `rows`: the pane's in the sidebar, the whole terminal's above the prompt,
+// where the pane is as tall as what it draws.
 // `canPaint`: the surface draws pixels, so the cabinet goes wherever it fits.
 export function layout(placement: 'dock' | 'inline', columns: number, rows: number, canPaint = false): Layout {
   const isWide = columns >= 34
@@ -109,8 +113,11 @@ export function layout(placement: 'dock' | 'inline', columns: number, rows: numb
     // Above the prompt: the reels, and everything else in a column beside
     // them, which takes 45 cells to stay as short as the reels are.
     if (placement === 'inline' && columns >= WIDTH + 48) {
-      return { ...plain, bank: 'beside', stats: 'lines', cabinet: reels }
+      return { ...plain, bank: 'beside', stats: 'lines', cabinet: reels, isAside: true }
     }
+    // Narrower: the words go under the reels, some 20 rows in all, where the
+    // terminal is tall enough to keep a transcript above them.
+    if (placement === 'inline' && rows >= 36) return { ...plain, bank: 'line', stats: 'lines', cabinet: reels }
     // The sidebar, by the rows the cabinet and the nine rows of words under it
     // add up to: 35 with the sign, 26 without. What is spare goes to blank
     // rows between the sections, then to the stats card, then to the paytable.
@@ -126,8 +133,10 @@ export function layout(placement: 'dock' | 'inline', columns: number, rows: numb
         cabinet: { hasSign, hasBank: true, sliver: 7 },
       }
     }
-    if (placement === 'dock' && rows >= 22) {
-      return { ...plain, bank: 'line', stats: 'lines', gap: rows >= 28 ? 1 : 0, cabinet: reels }
+    // A short sidebar: the reels and five rows of words, the balance on the
+    // stake's row; the stats where three more rows are left for them.
+    if (placement === 'dock' && rows >= 17) {
+      return { ...plain, bank: 'line', stats: rows >= 20 ? 'lines' : 'none', gap: rows >= 26 ? 1 : 0, cabinet: reels }
     }
   }
   // Above the prompt the height is short and the width is what there is to use.

@@ -634,13 +634,20 @@ test('where pixels are drawn and fit, the cabinet is: sign, reels and balance, t
   expect(parts('dock', 66, 44)).toBe('35 rows, sign, bank drawn, stats lines')
   expect(parts('dock', 66, 40)).toBe('26 rows, bank drawn, stats lines, gaps')
   expect(parts('dock', 66, 35)).toBe('26 rows, bank drawn, stats lines')
-  expect(parts('dock', 66, 28)).toBe('12 rows, bank line, stats lines, gaps')
-  expect(parts('dock', 66, 22)).toBe('12 rows, bank line, stats lines')
-  expect(parts('dock', 66, 21)).toBe('text')
+  expect(parts('dock', 66, 26)).toBe('12 rows, bank line, stats lines, gaps')
+  expect(parts('dock', 66, 20)).toBe('12 rows, bank line, stats lines')
+  expect(parts('dock', 66, 17)).toBe('12 rows, bank line, stats none')
+  expect(parts('dock', 66, 16)).toBe('text')
   expect(parts('dock', 55, 50)).toBe('text') // the cabinet is 56 cells wide
   // Above the prompt: the reels, the rest in a column beside them.
   expect(parts('inline', 104, 12)).toBe('12 rows, bank beside, stats lines')
-  expect(parts('inline', 103, 12)).toBe('text')
+  expect(layout('inline', 104, 12, true).isAside).toBe(true)
+  // Narrower, the words go under the reels: only in a terminal tall enough for both.
+  expect(parts('inline', 103, 36)).toBe('12 rows, bank line, stats lines')
+  expect(layout('inline', 103, 36, true).isAside).toBeUndefined()
+  expect(parts('inline', 56, 36)).toBe('12 rows, bank line, stats lines')
+  expect(parts('inline', 103, 35)).toBe('text')
+  expect(parts('inline', 55, 60)).toBe('text')
 
   // One sprite a symbol, sixteen pixels square.
   expect(SPRITES).toHaveLength(SYMBOLS.length)
@@ -680,7 +687,9 @@ test('every layout draws on every surface: pixels on the terminal where they fit
   ] as const
   for (const surface of ['terminal', 'desktop'] as const) {
     for (const [placement, bodyColumns, bodyRows] of rooms) {
-      const view = layout(placement, bodyColumns, bodyRows, surface === 'terminal')
+      // Above the prompt the layout goes by the terminal's height, not the pane's.
+      const height = placement === 'dock' ? bodyRows : PANE.viewport.rows
+      const view = layout(placement, bodyColumns, height, surface === 'terminal')
       const room = `${surface} ${placement} ${bodyColumns}x${bodyRows}`
       const ui = await $.ui.mount({
         ...PANE,
@@ -694,7 +703,7 @@ test('every layout draws on every surface: pixels on the terminal where they fit
       const cabinet = await ui.find({ type: 'Raster' })
       expect(cabinet !== undefined, room).toBe(view.cabinet !== undefined)
       expect(await has(view.isWide ? /^► ║(   \S+   ║){3} ◄$/u : /^>│(  \S+  │){3}<$/u), room).toBe(cabinet === undefined)
-      expect(await has('Redepositor'), room).toBe(true)
+      expect(await has('Redepositor'), room).toBe(view.stats !== 'none')
       expect(await ui.find({ key: 'spin' }), room).toBeDefined()
       await ui.unmount()
     }

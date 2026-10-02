@@ -113,7 +113,7 @@ function outcome(win: number, tier: number): string {
 // `byHand`: the person asked for it, so it may take the keyboard.
 function show($: EngineInterface, byHand: boolean) {
   // Above the prompt the pane is as tall as what it draws, up to these rows.
-  return $.ui.open({ id: PANE, title: 'gamba', rows: 14, ...(byHand ? { focus: true as const } : {}) })
+  return $.ui.open({ id: PANE, title: 'gamba', rows: 23, ...(byHand ? { focus: true as const } : {}) })
 }
 
 function sfx($: EngineInterface, name: 'stop' | 'win' | 'big' | 'broke'): void {
@@ -220,7 +220,8 @@ async function pull($: EngineInterface): Promise<void> {
     if (ms >= down && tier > 0) {
       isLit = Math.floor((ms - down) / 100) % 2 === 0
       held = Math.max(0, held - Math.ceil((win * FRAME_MS) / GLOW_MS[tier]!)) // the balance counts up
-      if (drawn?.hasBank === false) isWords = true // counted up in text
+      // Counted up in text: drawn again every third frame, the pixels in place between.
+      if (drawn?.hasBank === false && tick % 3 === 0) isWords = true
     }
     if (ms >= end) {
       timer?.cancel()
@@ -424,11 +425,12 @@ export const register: Register = on => {
     const columns = e.props.bodyColumns
     const isDocked = e.props.placement === 'dock'
     // Only the terminal draws a Raster; the other surfaces take one and show nothing.
-    const view = layout(e.props.placement, columns, e.props.scroll.bodyRows, e.surface === 'terminal')
+    const height = isDocked ? e.props.scroll.bodyRows : (e.viewport?.rows ?? 0)
+    const view = layout(e.props.placement, columns, height, e.surface === 'terminal')
     drawn = view.cabinet
     if (timer === undefined && drawn?.hasSign) idle($)
-    // Beside the pixel reels above the prompt everything stands in a column, flush left.
-    const isAside = drawn !== undefined && !isDocked
+    // Beside the pixel reels everything stands in a column, flush left.
+    const isAside = view.isAside === true
     const isRoomy = view.isWide
     const isOn = glow > 0 && isLit
     const blink = glow > 0 ? (isLit ? 'lit' : 'dark') : undefined
@@ -626,7 +628,9 @@ export const register: Register = on => {
         ? elements.Raster({ key: CABINET, columns: WIDTH, rows: rows(drawn), cells: picture(drawn) })
         : Box({ ...center, children: reels })
     const isBeside = view.bank === 'beside' && !isAside
-    const stake = free > 0 ? counter : bets
+    // Under the pixel reels every row counts: a one-line balance shares the stake's.
+    const isPurse = drawn !== undefined && view.bank === 'line'
+    const stake = Box({ ...flow, columnGap: 3, children: [...(isPurse ? [bank] : []), free > 0 ? counter : bets] })
     const stats = [
       ...(view.stats === 'card' ? [Box({ ...card, children: list(width - 4) })] : []),
       ...(view.stats === 'lines' ? lines : []),
@@ -684,7 +688,7 @@ export const register: Register = on => {
         }),
         // Under the cabinet the phrase is a section of its own: the picture ends in a hard edge.
         ...(drawn === undefined ? [] : [said]),
-        ...(isBeside || view.bank === 'drawn' ? [] : [bank]),
+        ...(isBeside || isPurse || view.bank === 'drawn' ? [] : [bank]),
         stake,
         Box({ ...(isRoomy ? { width: isDocked ? Math.min(columns, 58) : columns, justifyContent: 'center' } : {}), children: [buttons] }),
         agent,

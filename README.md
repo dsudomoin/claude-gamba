@@ -136,11 +136,11 @@ While the agent works and the slot is shut, one line above the prompt asks wheth
 <details>
 <summary><b>It fits the room it gets</b></summary>
 
-In a terminal the machine is drawn in pixels, two to a character cell: colored half blocks, no image protocol. A sidebar 44 rows tall gets the whole cabinet from the recording: the sign, the reels, the balance display. A shorter one loses the sign; under 35 rows only the reels stay in pixels, and the balance is a line of text. Taller ones add the stats card and the paytable.
+In a terminal the machine is drawn in pixels, two to a character cell: colored half blocks, no image protocol. A sidebar 44 rows tall gets the whole cabinet from the recording: the sign, the reels, the balance display. A shorter one loses the sign; under 35 rows only the reels stay in pixels, with the balance as text beside the bet, and under 20 the stats step out too. Taller ones add the stats card and the paytable.
 
-Above the prompt the pixel reels stand on the left and everything else in a column beside them. That takes a pane 104 columns wide, a terminal of about 120.
+Above the prompt the pixel reels stand on the left and everything else in a column beside them. That takes a pane 104 columns wide, a terminal of about 120. In a narrower terminal the words go under the reels: about 20 rows in all, so it happens only where the terminal is 36 rows or taller.
 
-Where the pixels do not fit (a sidebar under 22 rows, a pane under 56 columns, a narrower pane above the prompt) and in the Desktop app, which draws none, the slot is the same machine in text and emoji.
+Where the pixels do not fit (a sidebar under 17 rows, a pane under 56 columns, a narrow terminal that is also short) and in the Desktop app, which draws none, the slot is the same machine in text and emoji.
 
 The sidebar needs Claude Code's fullscreen layout and a terminal 110 columns or wider. Otherwise the slot sits above the prompt.
 
@@ -187,6 +187,6 @@ claude plugin validate .claude-plugin/plugin.json # what Claude Code reads from 
 claude plugin test .                              # the tests, no session needed
 ```
 
-No dependencies and no build step. Written against Claude Code 2.1.287. The pixels were checked by eye in xterm.js, at several sizes, docked and above the prompt; other terminals should draw the same cells but nobody has looked. The Desktop app gets the text version, checked only by the test kit. The sprites are rows of letters in `hooks/pixels.ts`: redraw one and it is on the reels. The mods API is early access and may move between releases.
+No dependencies and no build step. Written against Claude Code 2.1.287. The pixels were checked by eye in xterm.js, at several sizes, docked and above the prompt, wide and narrow; other terminals should draw the same cells but nobody has looked. The Desktop app gets the text version, checked only by the test kit. The sprites are rows of letters in `hooks/pixels.ts`: redraw one and it is on the reels. The mods API is early access and may move between releases.
 
 If the tests answer `hooks modules are turned off in this process`, that is Anthropic's remote switch for mods, not this repo. It comes back on by itself.

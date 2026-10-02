@@ -1,6 +1,6 @@
 {
   "name": "gamba",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "A slot machine you spin while your agent works. Chips come only from the tokens it burns. No real money: satire.",
   "author": {
     "name": "salatmaster"
