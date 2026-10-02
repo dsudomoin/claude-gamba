@@ -308,9 +308,8 @@ const BURN: TurnUsage = {
 
 test(
   'an agent turn deposits chips for the tokens it burned, up to the cap, and the wait is counted',
-  { options: { tokens_per_chip: 1000, max_chips_per_turn: 5 } },
   async ($, on) => {
-    const { clock, saved } = stubs(on, undefined, BURN)
+    const { clock, saved } = stubs(on, { rate: 1000, cap: 5 }, BURN)
     await $.session.start(START)
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
     const says = async (phrases: string[]) => {
@@ -629,9 +628,23 @@ test('stats outlive the session, and the copy button puts one line on the clipbo
   expect(await ui.find({ type: 'Text', text: ru.labels.copied })).toBeDefined()
 })
 
+test('the settings are /gamba rate, cap and warn; nothing asks for them at install', async ($, on) => {
+  const { saved } = stubs(on, { seen: true })
+  await $.session.start(START)
+  expect((await gamba($, 'config')).text).toBe(
+    'Tokens per chip: 2,000 · Chips per turn, at most: 20 · Limit warning: 80%\n/gamba rate N · /gamba cap N · /gamba warn N',
+  )
+  expect((await gamba($, 'rate 500')).text).toMatch('Tokens per chip: 500 ·')
+  await gamba($, 'cap 50', 'ludka')
+  await gamba($, 'warn 90')
+  expect(saved()).toMatchObject({ rate: 500, cap: 50, warn: 90 })
+  // Out of bounds or not a number: nothing changes, the settings are listed again.
+  for (const bad of ['warn 0', 'warn 101', 'rate', 'rate lots', 'cap 2.5']) await gamba($, bad)
+  expect(saved()).toMatchObject({ rate: 500, cap: 50, warn: 90 })
+})
+
 test(
   'the weekly limit warns past the threshold, once per window',
-  { options: { limit_warn_percent: 80 } },
   async ($, on) => {
     const { clock, seen } = stubs(on)
     await $.session.start(START)

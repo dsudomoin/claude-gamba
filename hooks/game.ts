@@ -74,6 +74,10 @@ export type Save = {
   missStreak: number
   maxMissStreak: number
   warnedUntil: number // no limit warning before this time
+  // The settings, changed with /gamba rate, cap and warn.
+  rate: number // burned tokens one chip costs
+  cap: number // chips one agent turn deposits at most
+  warn: number // percent of the weekly limit that sets off the warning
 }
 
 export function fresh(): Save {
@@ -95,6 +99,9 @@ export function fresh(): Save {
     missStreak: 0,
     maxMissStreak: 0,
     warnedUntil: 0,
+    rate: 2000,
+    cap: 20,
+    warn: 80,
   }
 }
 

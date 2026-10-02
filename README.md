@@ -99,7 +99,7 @@ One chip per 2,000 burned tokens, at most 20 chips per agent turn. Chips land af
 
 "Burned" is input + output + cache-write tokens. Cache reads are left out: every tool call re-reads the same context, and counting it twenty times is how you get thousands of spins a turn. On about 1,400 real turns this rate gives a median of 8 chips per turn.
 
-Both numbers, and the limit warning threshold, are rows in `/config`.
+Nothing asks you for settings at install. The rate, the cap and the limit warning threshold are yours to change later: `/gamba rate 500`, `/gamba cap 50`, `/gamba warn 90`. `/gamba config` shows where they stand.
 
 ## Stats
 

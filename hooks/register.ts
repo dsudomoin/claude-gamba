@@ -28,7 +28,8 @@ const DEP_MS = 5000 // how long the agent line shows a deposit
 // Prompts the person wrote themselves, the ones the language is read from.
 const TYPED = ['composer', 'bridge', 'sdk']
 
-let config = { tokensPerChip: 2000, maxChipsPerTurn: 20, limitWarnPercent: 80 }
+// What /gamba <word> <number> may set, and the bounds of each.
+const SETTINGS = { rate: [1, 1_000_000], cap: [1, 1000], warn: [1, 100] } as const
 let save: Save = fresh() // the store's copy as of the last load
 let queue: Promise<unknown> = Promise.resolve()
 let turn = { chips: 0, tokens: 0 } // deposited by the running turn
@@ -163,13 +164,15 @@ async function pull($: EngineInterface): Promise<void> {
   })
 }
 
-export const register: Register = (on, options) => {
-  config = {
-    tokensPerChip: Number(options.tokens_per_chip ?? config.tokensPerChip),
-    maxChipsPerTurn: Number(options.max_chips_per_turn ?? config.maxChipsPerTurn),
-    limitWarnPercent: Number(options.limit_warn_percent ?? config.limitWarnPercent),
-  }
+// The settings as text, with how to change them.
+function settings(): string {
+  const t = locale()
+  const l = t.labels
+  const now = `${l.rate}: ${fill(t, '{n}', { n: save.rate })} · ${l.cap}: ${save.cap} · ${l.warn}: ${save.warn}%`
+  return `${now}\n/gamba rate N · /gamba cap N · /gamba warn N`
+}
 
+export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await load($)
     at = save.rest
@@ -177,14 +180,14 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'gamba',
       description: 'Spin the slot while your agent works',
-      argumentHint: '[stats]',
+      argumentHint: '[stats | config | rate N | cap N | warn N]',
       immediate: true,
     })
     // The same command under its Russian name.
     await $.command.register({
       name: 'ludka',
       description: 'Покрутить слот, пока агент работает',
-      argumentHint: '[stats]',
+      argumentHint: '[stats | config | rate N | cap N | warn N]',
       immediate: true,
     })
     return next(e)
@@ -192,7 +195,20 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: ['gamba', 'ludka'] }, async ($, e) => {
     await load($)
-    if (e.args.trim() === 'stats') return { text: share() }
+    const [word = '', value = ''] = e.args.trim().split(/\s+/)
+    if (word === 'stats') return { text: share() }
+    // Nothing is asked at install: the defaults stand until one of these changes them.
+    if (word === 'config') return { text: settings() }
+    if (word === 'rate' || word === 'cap' || word === 'warn') {
+      const [least, most] = SETTINGS[word]
+      const n = Number(value)
+      if (Number.isInteger(n) && n >= least && n <= most) {
+        await mutate($, s => {
+          s[word] = n
+        })
+      }
+      return { text: settings() }
+    }
     offer = ''
     if (!save.seen) {
       line = say('first')
@@ -240,7 +256,7 @@ export const register: Register = (on, options) => {
       const tokens = burned(result.usage)
       // The room under the cap is read inside the queue: subagents step in parallel.
       await mutate($, s => {
-        turn.chips += deposit(s, tokens, config.tokensPerChip, config.maxChipsPerTurn - turn.chips)
+        turn.chips += deposit(s, tokens, s.rate, s.cap - turn.chips)
         turn.tokens += tokens
       })
     }
@@ -273,8 +289,8 @@ export const register: Register = (on, options) => {
     const weekly = e.rateLimits
       .filter(limit => limit.kind.startsWith('seven_day'))
       .sort((a, b) => b.percentUsed - a.percentUsed)[0]
-    if (weekly !== undefined && weekly.percentUsed >= config.limitWarnPercent) {
-      await load($)
+    await load($)
+    if (weekly !== undefined && weekly.percentUsed >= save.warn) {
       const now = await $.clock.now()
       if (now >= save.warnedUntil) {
         news = say('limit', { pct: Math.floor(weekly.percentUsed) })

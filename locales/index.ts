@@ -43,6 +43,9 @@ export type Locale = Phrases & {
     offer: string // the pane's button for the same setting, and its three values
     offers: { ask: string; always: string; never: string }
     balance: string
+    rate: string // the three settings, as /gamba config lists them
+    cap: string
+    warn: string
     bet: string
     pair: string // the paytable's row for two alike
     week: string
