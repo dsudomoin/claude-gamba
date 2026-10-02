@@ -5,7 +5,7 @@ import type { Reels } from './game'
 
 // The strip every reel scrolls, as indexes into SYMBOLS: each symbol as often
 // as its weight, so what slides past is what the reels really hold.
-export const STRIP = [4, 5, 3, 2, 5, 4, 1, 3, 5, 4, 2, 5, 3, 4, 0, 5, 3, 2, 4, 1]
+export const STRIP = [4, 5, 3, 2, 5, 4, 1, 3, 5, 4, 2, 5, 3, 4, 0, 5, 3, 2, 4, 1, 6]
 
 export const TICK_MS = 50
 const FAST = [6, 11, 16] // steps each reel makes at full speed, one a tick

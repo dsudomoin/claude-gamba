@@ -141,6 +141,20 @@ const en: Locale = {
     'This will take a while. Hit the casino?',
     'While it writes code, feeling lucky?',
   ],
+  bonus: [
+    'BONUS. {n:free spin|free spins}, all wins ×2',
+    'Performance bonus approved: {n:free spin|free spins}',
+    'The house is buying. Spin',
+    'Free spins. The house made a mistake',
+    'Bonus round. Nobody earned this',
+  ],
+  bonusEnd: [
+    'Bonus over. Took home +{n}',
+    'Free ride is over: +{n}',
+    'Back to paying. You made {n}',
+    'Bonus spent: +{n}. Yours, for now',
+    'Free spins are done. So is the generosity',
+  ],
   first: ['Welcome. No real money here. Just your tokens.', "You can't deposit. You can only work."],
 
   labels: {
@@ -163,6 +177,7 @@ const en: Locale = {
     warn: 'Limit warning',
     bet: 'Bet',
     pair: 'Pair from the left',
+    free: 'Free spins',
     week: 'This week',
     waited: 'Waited on agent',
     hours: '{hours}h',

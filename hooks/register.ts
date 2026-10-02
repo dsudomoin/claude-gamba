@@ -4,8 +4,11 @@ import { FALLBACK, LOCALES, detect, fill, pick } from '../locales/index'
 import type { Locale, Phrases } from '../locales/index'
 import {
   BETS,
+  FREE_MULT,
+  FREE_SPINS,
   OFFERS,
   PAIR_PAY,
+  SCATTER,
   SYMBOLS,
   WEEK_MS,
   applySpin,
@@ -36,7 +39,8 @@ let turn = { chips: 0, tokens: 0 } // deposited by the running turn
 let at: number[] = fresh().rest // where on the strip each reel stands
 let isSpinning = false
 let held = 0 // the part of a win the balance has not shown yet
-let glow = 0 // the payline celebrates: 1 a pair, 2 three of a kind
+let granted = 0 // free spins the reels have won but not shown yet
+let glow = 0 // the payline celebrates: 1 a pair, 2 three of a kind or free spins won
 let isLit = false // the blink of the glow
 let phase = 0 // where the running lights are
 let timer: Timer | undefined
@@ -95,7 +99,7 @@ function share(): string {
 function outcome(win: number, tier: number): string {
   if (tier === 2) return say('big')
   if (win > 0) return say('small')
-  if (save.chips < 1) return say('broke')
+  if (save.chips < 1 && save.free < 1) return say('broke')
   return save.missStreak >= STREAK_FROM ? say('streak', { n: save.missStreak }) : say('miss')
 }
 
@@ -117,23 +121,28 @@ async function pull($: EngineInterface): Promise<void> {
   // mid-animation changes nothing.
   const frames = plan(reels)
   const rest = frames.at(-1)!
-  const win = await mutate($, s => {
-    if (s.chips < 1) return undefined
+  const spun = await mutate($, s => {
+    if (s.chips < 1 && s.free < 1) return undefined
     s.rest = rest // a reopened pane shows the last real result, not a made-up one
-    return applySpin(s, reels)
+    const wasFree = s.free > 0
+    const win = applySpin(s, reels)
+    return { win, wasFree, free: s.free, freeWon: s.freeWon }
   })
-  if (win === undefined) {
+  if (spun === undefined) {
     isSpinning = false
     line = say('broke')
     sfx($, 'broke')
     $.ui.invalidate('ui.render')
     return
   }
+  const { win, wasFree, free, freeWon } = spun
   timer?.cancel() // the last win may still be celebrating
   glow = 0
   held = win
+  // A paid spin that ends with free spins left has just won them.
+  granted = wasFree ? 0 : free
   line = say('spin')
-  const tier = payout(reels) > PAIR_PAY ? 2 : win > 0 ? 1 : 0
+  const tier = payout(reels) > PAIR_PAY || granted > 0 ? 2 : win > 0 ? 1 : 0
   const end = frames.length - 1 + GLOW_TICKS[tier]!
   let tick = 0
   timer = $.clock.every(TICK_MS, () => {
@@ -148,9 +157,14 @@ async function pull($: EngineInterface): Promise<void> {
       // The reels are down. The next spin may start over the celebration.
       isSpinning = false
       glow = tier
-      line = tier > 0 ? `${outcome(win, tier)}  +${win}` : outcome(win, tier)
+      // The last free spin sums them all up, its own win included.
+      const isLast = wasFree && free === 0
+      const said =
+        granted > 0 ? say('bonus', { n: granted }) : isLast ? say('bonusEnd', { n: freeWon }) : outcome(win, tier)
+      line = win > 0 && !isLast ? `${said}  +${win}` : said
+      granted = 0
       if (tier > 0) sfx($, tier === 2 ? 'big' : 'win')
-      else if (save.chips < 1) sfx($, 'broke')
+      else if (save.chips < 1 && save.free < 1) sfx($, 'broke')
     }
     if (tick >= frames.length) {
       isLit = tick % 4 < 2
@@ -215,7 +229,7 @@ export const register: Register = on => {
       await mutate($, s => {
         s.seen = true
       })
-    } else if (save.chips < 1 && !isSpinning) {
+    } else if (save.chips < 1 && save.free < 1 && !isSpinning) {
       line = say('broke')
     }
     const opened = await show($, true)
@@ -412,6 +426,13 @@ export const register: Register = on => {
         Button({ key: 'bet-up', label: '►', hotkey: '3', plain: true, onPress: step(1) }),
       ],
     })
+    // While free spins last the stake is fixed: the row counts them down instead.
+    const free = save.free - granted
+    const counter = Text({
+      bold: true,
+      ...gold,
+      children: [`${l.free}: ${free} · ${l.bet} ${save.freeBet} ×${FREE_MULT}`],
+    })
     // Digits, not letters: they press the same on any keyboard layout. The
     // game is on 1 to 3; the settings after them are drawn dim.
     const buttons = Box({
@@ -576,7 +597,7 @@ export const register: Register = on => {
           ],
         }),
         ...(isBeside ? [] : [bank]),
-        bets,
+        free > 0 ? counter : bets,
         Box({ ...(isRoomy ? { width: isDocked ? Math.min(columns, 58) : columns, justifyContent: 'center' } : {}), children: [buttons] }),
         agent,
         ...(view.hasPays
@@ -588,7 +609,7 @@ export const register: Register = on => {
                     flexDirection: 'row',
                     flexWrap: 'wrap',
                     columnGap: 3,
-                    children: SYMBOLS.map(symbol =>
+                    children: SYMBOLS.filter(symbol => symbol.pay > 0).map(symbol =>
                       Box({
                         flexDirection: 'row',
                         justifyContent: 'space-between',
@@ -601,6 +622,10 @@ export const register: Register = on => {
                     ),
                   }),
                   pair(width - 4)([l.pair, PAIR_PAY * save.bet]),
+                  pair(width - 4)([
+                    `${l.free} ×${FREE_MULT}`,
+                    [2, 3].map(n => `${SYMBOLS[SCATTER]!.emoji.repeat(n)} ${FREE_SPINS[n]}`).join(' · '),
+                  ]),
                 ],
               }),
             ]
