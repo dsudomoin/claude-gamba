@@ -13,7 +13,7 @@
 
 **English** · [Русский](README.ru.md)
 
-<img src="docs/demo.gif" width="100%" alt="The agent reads three files; meanwhile the slot is offered above the prompt, opened, the bet raised to 5, and the fourth spin lands three green checks for +250">
+<img src="docs/demo.gif" width="100%" alt="The agent reads three files; meanwhile the slot is offered above the prompt and opened: a pixel-art cabinet in the sidebar. The bet goes up to 5, and the fourth spin lands three green checks for +250 under a rain of coins">
 
 <sub>A real session on Opus 5.5. The reels in this take were told what to land on: nobody films a slot machine until it pays.</sub>
 
@@ -40,6 +40,7 @@ You can't buy chips. You can't get them for free. Your agent burns tokens, the t
 | 🔥 **Chips are burned tokens** | One chip per 2,000 tokens your agent spends, paid out while it is still working. There is no other way in. |
 | 🗯 **It has opinions** | Over a hundred deadpan lines per language. English and Russian are written separately; neither is a translation. |
 | 📈 **It keeps score on you** | Hours waited on the agent, tokens deposited, longest losing streak, rank. One key copies it for the group chat. |
+| 👾 **It is drawn, not typed** | A cabinet in pixel art, right in the terminal: reels that roll and bounce, a sign with running lights, coins raining on a big win. |
 
 ## What it says
 
@@ -78,7 +79,7 @@ You keep typing, the agent keeps working. The slot never takes the keyboard unle
 
 ## The machine
 
-Three reels. The middle row, between the arrows, is the one that counts, read from the left.
+Three reels. The row in the middle, the one the marks on the frame point at, is the one that counts, read from the left.
 
 | Reels | Pays, per chip bet |
 | :- | :- |
@@ -135,7 +136,11 @@ While the agent works and the slot is shut, one line above the prompt asks wheth
 <details>
 <summary><b>It fits the room it gets</b></summary>
 
-In a tall sidebar it is the whole cabinet from the recording. As the sidebar gets shorter it sheds one part at a time: the paytable, the sign, the blank rows, and then the balance moves next to the reels and the stats fold into two lines. Above the prompt the reels, the balance and the records sit side by side. Only a pane under 34 columns falls back to a plain column.
+In a terminal the machine is drawn in pixels, two to a character cell: colored half blocks, no image protocol. A sidebar 44 rows tall gets the whole cabinet from the recording: the sign, the reels, the balance display. A shorter one loses the sign; under 35 rows only the reels stay in pixels, and the balance is a line of text. Taller ones add the stats card and the paytable.
+
+Above the prompt the pixel reels stand on the left and everything else in a column beside them. That takes a pane 104 columns wide, a terminal of about 120.
+
+Where the pixels do not fit (a sidebar under 22 rows, a pane under 56 columns, a narrower pane above the prompt) and in the Desktop app, which draws none, the slot is the same machine in text and emoji.
 
 The sidebar needs Claude Code's fullscreen layout and a terminal 110 columns or wider. Otherwise the slot sits above the prompt.
 
@@ -182,6 +187,6 @@ claude plugin validate .claude-plugin/plugin.json # what Claude Code reads from 
 claude plugin test .                              # the tests, no session needed
 ```
 
-No dependencies and no build step. Written and checked against Claude Code 2.1.287 in a terminal. The Desktop app draws the same pane, but there it has only been checked by the test kit, not by eye. The mods API is early access and may move between releases.
+No dependencies and no build step. Written against Claude Code 2.1.287. The pixels were checked by eye in xterm.js, at several sizes, docked and above the prompt; other terminals should draw the same cells but nobody has looked. The Desktop app gets the text version, checked only by the test kit. The sprites are rows of letters in `hooks/pixels.ts`: redraw one and it is on the reels. The mods API is early access and may move between releases.
 
 If the tests answer `hooks modules are turned off in this process`, that is Anthropic's remote switch for mods, not this repo. It comes back on by itself.

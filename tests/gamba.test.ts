@@ -20,8 +20,9 @@ import {
   spin,
 } from '../hooks/game'
 import type { Save } from '../hooks/game'
-import { big, bulbs, layout, reelWindow } from '../hooks/art'
-import { STRIP, faces, plan } from '../hooks/reels'
+import { WIDTH, big, bulbs, layout, reelWindow } from '../hooks/art'
+import { SPRITES, cells, rows, scene } from '../hooks/pixels'
+import { BOUNCE_MS, STRIP, faces, plan, where } from '../hooks/reels'
 import { LOCALES, detect, fill, pick } from '../locales/index'
 import type { Phrases } from '../locales/index'
 
@@ -81,25 +82,31 @@ test('the slot returns less than it takes: exactly, and over 300,000 spins', asy
   expect(Math.abs(s.won / s.wagered - exact)).toBeLessThan(0.05)
 })
 
-test('the reels scroll one symbol at a time, stop left to right, and rest on the result', async () => {
+test('the reels run down the strip, stop left to right, and rest on the result', async () => {
   // The strip holds each symbol as often as its weight: what scrolls past is honest.
   SYMBOLS.forEach((symbol, i) => expect(STRIP.filter(face => face === i)).toHaveLength(symbol.weight))
 
   const rng = seeded(7)
-  for (let n = 0; n < 500; n++) {
+  for (let n = 0; n < 200; n++) {
     const result = spin(rng)
-    const frames = plan(result, rng)
-    const rest = frames.at(-1)!
-    expect(rest.map(at => faces(at)[1])).toEqual(result)
-    const stops = [0, 1, 2].map(i => frames.findIndex(frame => frame[i] === rest[i]))
-    expect(stops[0]!).toBeLessThan(stops[1]!)
-    expect(stops[1]!).toBeLessThan(stops[2]!)
-    frames.slice(1).forEach((frame, tick) =>
-      frame.forEach((at, i) => expect([0, 1]).toContain(frames[tick]![i]! - at)),
-    )
+    const planned = plan(result, rng)
+    expect(planned.rest.map(at => faces(at)[1])).toEqual(result)
+    expect(planned.stops[0]!).toBeLessThan(planned.stops[1]!)
+    expect(planned.stops[1]!).toBeLessThan(planned.stops[2]!)
+    let before = where(planned, 0)
+    for (let ms = 33; ms <= planned.stops[2]! + BOUNCE_MS; ms += 33) {
+      const now = where(planned, ms)
+      now.forEach((at, i) => {
+        // Towards the rest, never back; past its stop a reel only springs about it.
+        if (ms <= planned.stops[i]!) expect(at).toBeLessThan(before[i]!)
+        else expect(Math.abs(at - planned.rest[i]!)).toBeLessThan(0.2)
+      })
+      before = now
+    }
+    expect(where(planned, planned.stops[2]! + BOUNCE_MS)).toEqual(planned.rest)
   }
   // Two alike on the left: the third reel keeps you waiting.
-  expect(plan([4, 4, 3]).length).toBeGreaterThan(plan([4, 3, 3]).length)
+  expect(plan([4, 4, 3]).stops[2]!).toBeGreaterThan(plan([4, 3, 3]).stops[2]!)
 })
 
 // ------------------------------------------------------------------- chips
@@ -267,6 +274,7 @@ function stubs(on: On, initial?: Partial<Save>, usage: TurnUsage | null = null) 
   const clock = mock.clock(on, { now: NOW })
   const store = new Map<string, unknown>(initial ? [['save', { ...fresh(), ...initial }]] : [])
   const seen = {
+    blits: 0, // the cabinet repainted in place
     toasts: [] as string[],
     copies: [] as string[],
     sounds: [] as string[],
@@ -297,6 +305,10 @@ function stubs(on: On, initial?: Partial<Save>, usage: TurnUsage | null = null) 
   }))
   // What Claude Code itself draws above the prompt, beneath the mod's offer.
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['beneath'] }))
+  on('ui.blit', () => {
+    seen.blits += 1
+    return { value: {} }
+  })
   on('audio.play', ($, e) => {
     seen.sounds.push(e.clip.asset ?? '')
     return { value: undefined }
@@ -603,10 +615,55 @@ test('the pane picks its layout from the room it has', async () => {
   }
 })
 
-test('every layout draws on every surface, with the balance in big digits where it fits', async ($, on) => {
-  stubs(on, { chips: 35, seen: true, spins: 121 })
+test('where pixels are drawn and fit, the cabinet is: sign, reels and balance, then less of it', async () => {
+  const parts = (placement: 'dock' | 'inline', columns: number, height: number) => {
+    const view = layout(placement, columns, height, true)
+    if (view.cabinet === undefined) return 'text'
+    return [
+      `${rows(view.cabinet)} rows`,
+      ...(view.cabinet.hasSign ? ['sign'] : []),
+      `bank ${view.bank}`,
+      `stats ${view.stats}`,
+      ...(view.hasPays ? ['pays'] : []),
+      ...(view.gap ? ['gaps'] : []),
+    ].join(', ')
+  }
+  expect(parts('dock', 66, 64)).toBe('35 rows, sign, bank drawn, stats card, pays, gaps')
+  expect(parts('dock', 66, 57)).toBe('35 rows, sign, bank drawn, stats card, gaps')
+  expect(parts('dock', 66, 49)).toBe('35 rows, sign, bank drawn, stats lines, gaps')
+  expect(parts('dock', 66, 44)).toBe('35 rows, sign, bank drawn, stats lines')
+  expect(parts('dock', 66, 40)).toBe('26 rows, bank drawn, stats lines, gaps')
+  expect(parts('dock', 66, 35)).toBe('26 rows, bank drawn, stats lines')
+  expect(parts('dock', 66, 28)).toBe('12 rows, bank line, stats lines, gaps')
+  expect(parts('dock', 66, 22)).toBe('12 rows, bank line, stats lines')
+  expect(parts('dock', 66, 21)).toBe('text')
+  expect(parts('dock', 55, 50)).toBe('text') // the cabinet is 56 cells wide
+  // Above the prompt: the reels, the rest in a column beside them.
+  expect(parts('inline', 104, 12)).toBe('12 rows, bank beside, stats lines')
+  expect(parts('inline', 103, 12)).toBe('text')
+
+  // One sprite a symbol, sixteen pixels square.
+  expect(SPRITES).toHaveLength(SYMBOLS.length)
+  for (const sprite of SPRITES) expect(sprite.map(line => line.length)).toEqual(Array(16).fill(16))
+
+  const full = { hasSign: true, hasBank: true, sliver: 7 }
+  const look = { title: 'GAMBA', at: [14, 6.4, 20], phase: 0, frame: 0, glow: 0, isLit: false, hits: [false, false, false], balance: 207, isPaying: false }
+  const canvas = scene(full, look)
+  expect([canvas.w, canvas.h]).toEqual([WIDTH, rows(full) * 2])
+  // Twelve bytes a cell, as base64; every cell a space or a half block.
+  const bytes = Uint8Array.from(atob(cells(canvas)), char => char.charCodeAt(0))
+  expect(bytes).toHaveLength(WIDTH * rows(full) * 12)
+  const words = new Uint32Array(bytes.buffer)
+  expect(new Set(words.filter((_, i) => i % 3 === 0))).toEqual(new Set([0x20, 0x2580, 0x2584]))
+  // A long balance, a big win and reels in motion all stay on the canvas.
+  expect(cells(scene(full, { ...look, balance: 123_456_789, glow: 2, isLit: true, frame: 99 }))).toHaveLength(bytes.length * 4 / 3)
+})
+
+test('every layout draws on every surface: pixels on the terminal where they fit, text elsewhere', async ($, on) => {
+  const { clock, seen } = stubs(on, { chips: 35, seen: true, spins: 121 })
   await $.session.start(START)
   const rooms = [
+    ['dock', 66, 62],
     ['dock', 66, 50],
     ['dock', 66, 36],
     ['dock', 66, 30],
@@ -615,7 +672,7 @@ test('every layout draws on every surface, with the balance in big digits where 
     ['dock', 66, 19],
     ['dock', 48, 19],
     ['dock', 48, 10],
-    ['inline', 100, 12],
+    ['inline', 120, 12],
     ['inline', 76, 12],
     ['inline', 70, 12],
     ['inline', 40, 12],
@@ -623,7 +680,7 @@ test('every layout draws on every surface, with the balance in big digits where 
   ] as const
   for (const surface of ['terminal', 'desktop'] as const) {
     for (const [placement, bodyColumns, bodyRows] of rooms) {
-      const view = layout(placement, bodyColumns, bodyRows)
+      const view = layout(placement, bodyColumns, bodyRows, surface === 'terminal')
       const room = `${surface} ${placement} ${bodyColumns}x${bodyRows}`
       const ui = await $.ui.mount({
         ...PANE,
@@ -631,14 +688,29 @@ test('every layout draws on every surface, with the balance in big digits where 
         props: { ...PANE.props, placement, bodyColumns, scroll: { offset: 0, bodyRows } },
       })
       const has = async (text: string | RegExp) => (await ui.find({ type: 'Text', text })) !== undefined
-      expect(await has(big('35')[0]), room).toBe(view.bank !== 'line')
+      expect(await has(big('35')[0]), room).toBe(view.bank === 'below' || view.bank === 'beside')
       expect(await has('Balance: 35'), room).toBe(view.bank === 'line')
       expect(await has(big('GAMBA')[0]), room).toBe(view.hasTitle)
-      expect(await has(view.isWide ? /^► ║(   \S+   ║){3} ◄$/u : /^>│(  \S+  │){3}<$/u), room).toBe(true)
+      const cabinet = await ui.find({ type: 'Raster' })
+      expect(cabinet !== undefined, room).toBe(view.cabinet !== undefined)
+      expect(await has(view.isWide ? /^► ║(   \S+   ║){3} ◄$/u : /^>│(  \S+  │){3}<$/u), room).toBe(cabinet === undefined)
       expect(await has('Redepositor'), room).toBe(true)
       expect(await ui.find({ key: 'spin' }), room).toBeDefined()
       await ui.unmount()
     }
+  }
+  // While the reels run the cabinet is repainted in place; text is drawn again.
+  for (const [surface, placement, isPainted] of [
+    ['terminal', 'dock', true],
+    ['terminal', 'inline', false], // PANE is 40 columns: too narrow for the cabinet
+    ['desktop', 'dock', false],
+  ] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface, props: { ...PANE.props, placement, scroll: { offset: 0, bodyRows: 50 }, bodyColumns: placement === 'dock' ? 66 : 40 } })
+    seen.blits = 0
+    await ui.press({ key: 'spin' })
+    await clock.advance(5000)
+    expect(seen.blits > 0, `${surface} ${placement}`).toBe(isPainted)
+    await ui.unmount()
   }
 })
 

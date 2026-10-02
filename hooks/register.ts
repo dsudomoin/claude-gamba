@@ -21,11 +21,16 @@ import {
   spin,
 } from './game'
 import type { Offer, Reels, Save } from './game'
-import { TICK_MS, plan } from './reels'
-import { big, bulbs, layout, reelWindow } from './art'
+import { BOUNCE_MS, FRAME_MS, plan, where } from './reels'
+import { WIDTH, big, bulbs, layout, reelWindow } from './art'
+import type { Parts } from './art'
+import { cells, rows, scene } from './pixels'
 
 const PANE = 'gamba'
-const GLOW_TICKS = [0, 10, 24] // how long a miss, a pair and three of a kind celebrate
+const CABINET = 'cabinet' // the Raster's key in the pane
+const GLOW_MS = [0, 500, 1200] // how long a miss, a pair and three of a kind celebrate
+const IDLE_MS = 500 // a step of the sign's lights while nothing spins
+const LIGHT_TICKS = 3 // and while the reels run: every third frame
 const STREAK_FROM = 5
 const DEP_MS = 5000 // how long the agent line shows a deposit
 // Prompts the person wrote themselves, the ones the language is read from.
@@ -36,14 +41,16 @@ const SETTINGS = { rate: [1, 1_000_000], cap: [1, 1000], warn: [1, 100] } as con
 let save: Save = fresh() // the store's copy as of the last load
 let queue: Promise<unknown> = Promise.resolve()
 let turn = { chips: 0, tokens: 0 } // deposited by the running turn
-let at: number[] = fresh().rest // where on the strip each reel stands
+let at: number[] = fresh().rest // where on the strip each reel is, a fraction while it moves
+let hits = [false, false, false] // the reels that won the last spin
+let drawn: Parts | undefined // the pixel cabinet the pane drew last; absent, it drew text
 let isSpinning = false
 let held = 0 // the part of a win the balance has not shown yet
 let granted = 0 // free spins the reels have won but not shown yet
 let glow = 0 // the payline celebrates: 1 a pair, 2 three of a kind or free spins won
 let isLit = false // the blink of the glow
-let phase = 0 // where the running lights are
-let timer: Timer | undefined
+let phase = 0 // frames drawn so far: LIGHT_TICKS of them move the running lights one bulb
+let timer: Timer | undefined // the spin, or the idle lights
 let later: Timer | undefined // the agent line's second phrase, on its way
 let line = '' // what the slot says
 let news = '' // what is going on with the agent
@@ -105,12 +112,52 @@ function outcome(win: number, tier: number): string {
 
 // `byHand`: the person asked for it, so it may take the keyboard.
 function show($: EngineInterface, byHand: boolean) {
-  return $.ui.open({ id: PANE, title: 'gamba', rows: 12, ...(byHand ? { focus: true as const } : {}) })
+  // Above the prompt the pane is as tall as what it draws, up to these rows.
+  return $.ui.open({ id: PANE, title: 'gamba', rows: 14, ...(byHand ? { focus: true as const } : {}) })
 }
 
 function sfx($: EngineInterface, name: 'stop' | 'win' | 'big' | 'broke'): void {
   // No player (Linux, Windows) or no file: the slot just stays quiet.
   if (save.sound) $.audio.play({ asset: `sounds/${name}.wav` }).catch(() => {})
+}
+
+// The cabinet as the pane's Raster takes it.
+function picture(parts: Parts): string {
+  return cells(
+    scene(parts, {
+      title: locale().title,
+      at,
+      phase: Math.floor(phase / LIGHT_TICKS),
+      frame: phase,
+      glow,
+      isLit,
+      hits,
+      balance: save.chips - held,
+      isPaying: glow > 0, // not before the reels are down: the color would give the win away
+    }),
+  )
+}
+
+// The picture moved. Pixels are repainted in place; a pane drawn in text, or
+// one whose words changed too, is drawn again.
+// ponytail: one pane at a time. With the slot on two surfaces at once the one
+// drawn last animates and the other catches up when the words change.
+function redraw($: EngineInterface, isWords: boolean): void {
+  if (drawn === undefined || isWords) $.ui.invalidate('ui.render')
+  else $.ui.blit({ requestId: PANE, key: CABINET, cells: picture(drawn) }).catch(() => {})
+}
+
+// The sign's lights keep running while the slot stands idle on screen.
+function idle($: EngineInterface): void {
+  const mine = $.clock.every(IDLE_MS, async () => {
+    phase += LIGHT_TICKS
+    const blit = drawn?.hasSign && (await $.ui.blit({ requestId: PANE, key: CABINET, cells: picture(drawn) }))
+    // No sign on screen: nothing to light until the pane draws one again.
+    if (blit && blit.deny === undefined) return
+    mine.cancel()
+    if (timer === mine) timer = undefined
+  })
+  timer = mine
 }
 
 async function pull($: EngineInterface): Promise<void> {
@@ -119,11 +166,10 @@ async function pull($: EngineInterface): Promise<void> {
   const reels: Reels = spin()
   // The spin is settled and saved before the reels move: closing the pane
   // mid-animation changes nothing.
-  const frames = plan(reels)
-  const rest = frames.at(-1)!
+  const planned = plan(reels)
   const spun = await mutate($, s => {
     if (s.chips < 1 && s.free < 1) return undefined
-    s.rest = rest // a reopened pane shows the last real result, not a made-up one
+    s.rest = planned.rest // a reopened pane shows the last real result, not a made-up one
     const wasFree = s.free > 0
     const win = applySpin(s, reels)
     return { win, wasFree, free: s.free, freeWon: s.freeWon }
@@ -143,20 +189,24 @@ async function pull($: EngineInterface): Promise<void> {
   granted = wasFree ? 0 : free
   line = say('spin')
   const tier = payout(reels) > PAIR_PAY || granted > 0 ? 2 : win > 0 ? 1 : 0
-  const end = frames.length - 1 + GLOW_TICKS[tier]!
+  const down = planned.stops[2]! // the last reel stops
+  const end = down + Math.max(GLOW_MS[tier]!, BOUNCE_MS)
   let tick = 0
-  timer = $.clock.every(TICK_MS, () => {
+  timer = $.clock.every(FRAME_MS, () => {
     tick += 1
+    const ms = tick * FRAME_MS
+    const isNow = (moment: number) => ms >= moment && ms - FRAME_MS < moment
+    let isWords = false
     phase += 1
-    if (tick < frames.length) {
-      const frame = frames[tick]!
-      if (frame.some((spot, i) => spot === rest[i] && at[i] !== spot)) sfx($, 'stop')
-      at = frame
-    }
-    if (tick === frames.length - 1) {
+    at = where(planned, ms)
+    if (planned.stops.some(isNow)) sfx($, 'stop')
+    if (isNow(down)) {
       // The reels are down. The next spin may start over the celebration.
       isSpinning = false
       glow = tier
+      hits = reels.map((symbol, i) =>
+        granted > 0 ? symbol === SCATTER : win > 0 && (i < 2 || symbol === reels[0]),
+      )
       // The last free spin sums them all up, its own win included.
       const isLast = wasFree && free === 0
       const said =
@@ -165,16 +215,20 @@ async function pull($: EngineInterface): Promise<void> {
       granted = 0
       if (tier > 0) sfx($, tier === 2 ? 'big' : 'win')
       else if (save.chips < 1 && save.free < 1) sfx($, 'broke')
+      isWords = true
     }
-    if (tick >= frames.length) {
-      isLit = tick % 4 < 2
-      held = Math.max(0, held - Math.ceil(win / GLOW_TICKS[tier]!)) // the balance counts up
+    if (ms >= down && tier > 0) {
+      isLit = Math.floor((ms - down) / 100) % 2 === 0
+      held = Math.max(0, held - Math.ceil((win * FRAME_MS) / GLOW_MS[tier]!)) // the balance counts up
+      if (drawn?.hasBank === false) isWords = true // counted up in text
     }
-    if (tick >= end) {
+    if (ms >= end) {
       timer?.cancel()
+      timer = undefined
       glow = held = 0
+      isWords = true
     }
-    $.ui.invalidate('ui.render')
+    redraw($, isWords)
   })
 }
 
@@ -363,11 +417,18 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const elements = $.ui.resolve(e)
+    const { Box, Text, Button } = elements
     const t = locale()
     const l = t.labels
     const columns = e.props.bodyColumns
-    const view = layout(e.props.placement, columns, e.props.scroll.bodyRows)
+    const isDocked = e.props.placement === 'dock'
+    // Only the terminal draws a Raster; the other surfaces take one and show nothing.
+    const view = layout(e.props.placement, columns, e.props.scroll.bodyRows, e.surface === 'terminal')
+    drawn = view.cabinet
+    if (timer === undefined && drawn?.hasSign) idle($)
+    // Beside the pixel reels above the prompt everything stands in a column, flush left.
+    const isAside = drawn !== undefined && !isDocked
     const isRoomy = view.isWide
     const isOn = glow > 0 && isLit
     const blink = glow > 0 ? (isLit ? 'lit' : 'dark') : undefined
@@ -376,7 +437,7 @@ export const register: Register = on => {
     const balance = save.chips - held
     const center = { flexDirection: 'column', alignItems: 'center' } as const
 
-    const [top, above, payline, below, bottom] = reelWindow(at, isRoomy)
+    const [top, above, payline, below, bottom] = reelWindow(at.map(Math.round), isRoomy)
     const reels = [
       Text({ dimColor: !isOn && !isRoomy, ...tint, children: [top!] }),
       Text({ dimColor: true, children: [above!] }),
@@ -391,7 +452,7 @@ export const register: Register = on => {
       flexDirection: 'row',
       flexWrap: 'wrap',
       columnGap: 2,
-      ...(isRoomy ? ({ justifyContent: 'center' } as const) : {}),
+      ...(isRoomy && !isAside ? ({ justifyContent: 'center' } as const) : {}),
     } as const
     // The stake: 2 and 3 step left and right through the stakes, a click
     // picks one outright. The chosen one is a gold chip, the rest are dim.
@@ -529,7 +590,12 @@ export const register: Register = on => {
         columnGap: 1,
         children: [Text({ dimColor: true, children: [label] }), Text({ bold: true, children: [String(value)] })],
       })
-    const wrap = { flexDirection: 'row', flexWrap: 'wrap', columnGap: 3, justifyContent: 'center' } as const
+    const wrap = {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      columnGap: 3,
+      ...(isAside ? {} : ({ justifyContent: 'center' } as const)),
+    } as const
     const weekLine = Box({
       ...wrap,
       children: [Text({ dimColor: true, children: [`${l.week}:`] }), ...weekly.map(words)],
@@ -544,20 +610,40 @@ export const register: Register = on => {
         : Box({
             ...center,
             children: [
-              Text({ dimColor: true, children: [[...l.balance.toUpperCase()].join(' ')] }),
+              ...(isAside ? [] : [Text({ dimColor: true, children: [[...l.balance.toUpperCase()].join(' ')] })]),
               ...big(String(balance)).map(row =>
-                Text({ bold: true, color: held > 0 || isOn ? 'green' : 'yellow', children: [row] }),
+                Text({ bold: true, color: glow > 0 ? 'green' : 'yellow', children: [row] }),
               ),
             ],
           })
 
     const width = Math.min(43, columns)
     const card = { flexDirection: 'column', borderStyle: 'round', borderDimColor: true, paddingX: 1, width } as const
-    const lights = (shift: number) => Text({ ...gold, children: [bulbs(32, phase + shift, blink)] })
-    const window = Box({ ...center, children: reels })
-    const isBeside = view.bank === 'beside'
-    const isDocked = e.props.placement === 'dock'
+    const lights = (shift: number) =>
+      Text({ ...gold, children: [bulbs(32, Math.floor(phase / LIGHT_TICKS) + shift, blink)] })
+    const window =
+      drawn !== undefined && 'Raster' in elements
+        ? elements.Raster({ key: CABINET, columns: WIDTH, rows: rows(drawn), cells: picture(drawn) })
+        : Box({ ...center, children: reels })
+    const isBeside = view.bank === 'beside' && !isAside
+    const stake = free > 0 ? counter : bets
+    const stats = [
+      ...(view.stats === 'card' ? [Box({ ...card, children: list(width - 4) })] : []),
+      ...(view.stats === 'lines' ? lines : []),
+      ...(view.stats === 'split' ? [weekLine] : []),
+    ]
 
+    if (isAside) {
+      return Box({
+        flexDirection: 'row',
+        alignItems: 'center',
+        columnGap: 3,
+        children: [
+          window,
+          Box({ flexDirection: 'column', alignItems: 'flex-start', children: [bank, said, stake, buttons, agent, ...stats] }),
+        ],
+      })
+    }
     return Box({
       ...(isRoomy ? { ...center, width: columns } : { flexDirection: 'column' }),
       rowGap: view.gap,
@@ -593,11 +679,13 @@ export const register: Register = on => {
                   ],
                 })
               : window,
-            said,
+            ...(drawn === undefined ? [said] : []),
           ],
         }),
-        ...(isBeside ? [] : [bank]),
-        free > 0 ? counter : bets,
+        // Under the cabinet the phrase is a section of its own: the picture ends in a hard edge.
+        ...(drawn === undefined ? [] : [said]),
+        ...(isBeside || view.bank === 'drawn' ? [] : [bank]),
+        stake,
         Box({ ...(isRoomy ? { width: isDocked ? Math.min(columns, 58) : columns, justifyContent: 'center' } : {}), children: [buttons] }),
         agent,
         ...(view.hasPays
@@ -630,9 +718,7 @@ export const register: Register = on => {
               }),
             ]
           : []),
-        ...(view.stats === 'card' ? [Box({ ...card, children: list(width - 4) })] : []),
-        ...(view.stats === 'lines' ? lines : []),
-        ...(view.stats === 'split' ? [weekLine] : []),
+        ...stats,
       ],
     })
   })
