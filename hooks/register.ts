@@ -48,6 +48,7 @@ let isSpinning = false
 let held = 0 // the part of a win the balance has not shown yet
 let granted = 0 // free spins the reels have won but not shown yet
 let glow = 0 // the payline celebrates: 1 a pair, 2 three of a kind or free spins won
+let before: Save | undefined // the records as they stood before the spin, while its reels roll
 let isLit = false // the blink of the glow
 let phase = 0 // frames drawn so far: LIGHT_TICKS of them move the running lights one bulb
 let timer: Timer | undefined // the spin, or the idle lights
@@ -169,6 +170,7 @@ async function pull($: EngineInterface): Promise<void> {
   const planned = plan(reels)
   const spun = await mutate($, s => {
     if (s.chips < 1 && s.free < 1) return undefined
+    before = { ...s, week: { ...s.week } } // the records would give the result away
     s.rest = planned.rest // a reopened pane shows the last real result, not a made-up one
     const wasFree = s.free > 0
     const win = applySpin(s, reels)
@@ -203,6 +205,7 @@ async function pull($: EngineInterface): Promise<void> {
     if (isNow(down)) {
       // The reels are down. The next spin may start over the celebration.
       isSpinning = false
+      before = undefined
       glow = tier
       hits = reels.map((symbol, i) =>
         granted > 0 ? symbol === SCATTER : win > 0 && (i < 2 || symbol === reels[0]),
@@ -561,15 +564,16 @@ export const register: Register = on => {
       ],
     })
 
+    const shown = before ?? save
     const records: [string, number | string][] = [
-      [l.rank, t.ranks[rank(save.spins)]!],
-      [l.maxWin, save.maxWin > 0 ? fill(t, '{n}', { n: save.maxWin }) : '—'],
-      [l.streak, save.maxMissStreak],
-      [l.payout, save.wagered > 0 ? `${Math.round((save.won / save.wagered) * 100)}%` : '—'],
+      [l.rank, t.ranks[rank(shown.spins)]!],
+      [l.maxWin, shown.maxWin > 0 ? fill(t, '{n}', { n: shown.maxWin }) : '—'],
+      [l.streak, shown.maxMissStreak],
+      [l.payout, shown.wagered > 0 ? `${Math.round((shown.won / shown.wagered) * 100)}%` : '—'],
     ]
     const weekly: [string, number | string][] = [
       [l.waited, fill(t, l.hours, { hours: hours(t) })],
-      [l.spins, fill(t, '{n}', { n: save.week.spins })],
+      [l.spins, fill(t, '{n}', { n: shown.week.spins })],
       [l.tokens, fill(t, '{n}', { n: save.week.tokens })],
     ]
 
