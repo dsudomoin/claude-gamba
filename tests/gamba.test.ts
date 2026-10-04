@@ -513,11 +513,15 @@ test(
       // The reels are random, so spin until this surface has shown both a
       // win and a miss; 200 spins without one of them does not happen.
       const seen = new Set<boolean>()
+      // The records next to the reels: the return so far and the week's spins.
+      const records = async () =>
+        (await ui.findAll({ type: 'Text' })).map(text => text.text).filter(text => /^(\d+%|—|\d+)$/.test(text))
       for (let i = 0; i < 200 && seen.size < 2; i++) {
         // Scatters may have won free spins: those stake nothing and pay double.
         const before = saved()
         const stake = before.free > 0 ? 0 : 1
         const times = before.free > 0 ? before.freeBet * FREE_MULT : 1
+        const shown = await records()
         await ui.press({ key: 'spin' })
         await ui.press({ key: 'spin' }) // a second press mid-spin is ignored
         const after = saved()
@@ -526,8 +530,10 @@ test(
         expect(pays.map(pay => pay * times)).toContain(win)
         // Saved already, but the pane shows the balance without the win.
         expect(await ui.find({ type: 'Text', text: `Balance: ${balance - stake}` })).toBeDefined()
+        expect(await records()).toEqual(shown) // nor do the records give the result away
         await clock.advance(5000) // the reels stop and the win is counted up
         expect(await ui.find({ type: 'Text', text: `Balance: ${after.chips}` })).toBeDefined()
+        expect(await records()).not.toEqual(shown) // the spin counter moved at least
         expect((await ui.findAll({ type: 'Text', text: /^(► |  )║(   \S+   ║){3}( ◄|  )$/u }))).toHaveLength(3)
         balance = after.chips
         wins += win
